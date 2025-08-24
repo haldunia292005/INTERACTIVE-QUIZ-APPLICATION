@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Awesome Quiz App</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 1.5rem; /* More rounded corners */
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 600px;
+            padding: 2.5rem; /* Increased padding */
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem; /* Increased gap */
+        }
+        .question-text {
+            font-size: 1.75rem; /* Larger font size */
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+            line-height: 1.4;
+        }
+        .answer-button {
+            background-color: #e2e8f0;
+            color: #4a5568;
+            padding: 1rem 1.5rem; /* Increased padding */
+            border-radius: 0.75rem; /* Rounded corners */
+            border: 2px solid #cbd5e0;
+            font-size: 1.125rem; /* Larger font size */
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            margin-bottom: 0.75rem;
+            width: 100%;
+            text-align: left;
+        }
+        .answer-button:hover:not(.correct):not(.incorrect):not(.disabled) {
+            background-color: #cfd8e3;
+            border-color: #a0aec0;
+            transform: translateY(-2px);
+        }
+        .answer-button.correct {
+            background-color: #48bb78; /* Green for correct */
+            color: #ffffff;
+            border-color: #38a169;
+            box-shadow: 0 4px 6px rgba(72, 187, 120, 0.4);
+            animation: pulseCorrect 0.6s ease-in-out;
+        }
+        .answer-button.incorrect {
+            background-color: #f56565; /* Red for incorrect */
+            color: #ffffff;
+            border-color: #e53e3e;
+            box-shadow: 0 4px 6px rgba(245, 101, 101, 0.4);
+            animation: shakeIncorrect 0.4s ease-in-out;
+        }
+        .answer-button.disabled {
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        .feedback-text {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 1rem;
+            min-height: 30px; /* To prevent layout shift */
+        }
+        .next-button {
+            background-color: #4299e1; /* Blue for next button */
+            color: white;
+            padding: 0.8rem 2rem;
+            border-radius: 0.75rem;
+            font-size: 1.125rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out, transform 0.2s ease-in-out;
+            margin-top: 1.5rem;
+            border: none;
+            box-shadow: 0 4px 6px rgba(66, 153, 225, 0.4);
+        }
+        .next-button:hover {
+            background-color: #3182ce;
+            transform: translateY(-2px);
+        }
+        .score-display {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2b6cb0;
+            margin-top: 1rem;
+        }
+
+        @keyframes pulseCorrect {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+
+        @keyframes shakeIncorrect {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            50% { transform: translateX(5px); }
+            75% { transform: translateX(-5px); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-5">
+    <div class="container mx-auto p-8 rounded-2xl shadow-xl flex flex-col gap-6">
+        <h1 class="text-4xl font-extrabold text-blue-700 mb-6">Quiz Time!</h1>
+
+        <div id="quiz-container" class="space-y-4">
+            <p id="question-text" class="question-text"></p>
+            <div id="answer-buttons" class="grid grid-cols-1 gap-4">
+                <!-- Answer buttons will be loaded here by JavaScript -->
+            </div>
+            <p id="feedback-text" class="feedback-text text-gray-700"></p>
+        </div>
+
+        <button id="next-button" class="next-button hidden">Next Question</button>
+
+        <div id="final-score-container" class="hidden">
+            <p class="text-3xl font-bold text-green-700 mb-4">Quiz Finished!</p>
+            <p id="final-score" class="score-display">Your Score: 0 / 0</p>
+            <button id="restart-button" class="next-button mt-4">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // Array of quiz questions
+        const questions = [
+            {
+                question: "What is the capital of France?",
+                options: ["Berlin", "Madrid", "Paris", "Rome"],
+                correct: "Paris"
+            },
+            {
+                question: "Which planet is known as the Red Planet?",
+                options: ["Earth", "Mars", "Jupiter", "Venus"],
+                correct: "Mars"
+            },
+            {
+                question: "What is the largest ocean on Earth?",
+                options: ["Atlantic Ocean", "Indian Ocean", "Arctic Ocean", "Pacific Ocean"],
+                correct: "Pacific Ocean"
+            },
+            {
+                question: "Who painted the Mona Lisa?",
+                options: ["Vincent van Gogh", "Pablo Picasso", "Leonardo da Vinci", "Claude Monet"],
+                correct: "Leonardo da Vinci"
+            },
+            {
+                question: "What is the chemical symbol for water?",
+                options: ["O2", "H2O", "CO2", "NACL"],
+                correct: "H2O"
+            }
+        ];
+
+        // Get DOM elements
+        const questionText = document.getElementById('question-text');
+        const answerButtonsContainer = document.getElementById('answer-buttons');
+        const feedbackText = document.getElementById('feedback-text');
+        const nextButton = document.getElementById('next-button');
+        const finalScoreContainer = document.getElementById('final-score-container');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const restartButton = document.getElementById('restart-button');
+        const quizContainer = document.getElementById('quiz-container');
+
+        // State variables
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let answerSelected = false; // Flag to prevent multiple selections per question
+
+        /**
+         * Loads the current question and its options into the UI.
+         */
+        function loadQuestion() {
+            answerSelected = false; // Reset for new question
+            feedbackText.textContent = ''; // Clear previous feedback
+            nextButton.classList.add('hidden'); // Hide next button until answer is given
+
+            // Clear previous answer buttons
+            answerButtonsContainer.innerHTML = '';
+
+            // If all questions are answered, show final score
+            if (currentQuestionIndex >= questions.length) {
+                showFinalScore();
+                return;
+            }
+
+            const currentQuestion = questions[currentQuestionIndex];
+            questionText.textContent = currentQuestion.question;
+
+            // Create buttons for each option
+            currentQuestion.options.forEach(option => {
+                const button = document.createElement('button');
+                button.textContent = option;
+                button.classList.add('answer-button');
+                button.addEventListener('click', () => handleAnswer(option, currentQuestion.correct, button));
+                answerButtonsContainer.appendChild(button);
+            });
+        }
+
+        /**
+         * Handles the user's answer selection, provides feedback, and updates the score.
+         * @param {string} selectedOption - The option selected by the user.
+         * @param {string} correctAnswer - The correct answer for the current question.
+         * @param {HTMLButtonElement} clickedButton - The button element that was clicked.
+         */
+        function handleAnswer(selectedOption, correctAnswer, clickedButton) {
+            if (answerSelected) return; // Prevent multiple clicks
+
+            answerSelected = true; // Mark that an answer has been selected
+
+            // Disable all answer buttons after selection
+            Array.from(answerButtonsContainer.children).forEach(button => {
+                button.classList.add('disabled');
+            });
+
+            if (selectedOption === correctAnswer) {
+                feedbackText.textContent = 'Correct! 🎉';
+                feedbackText.classList.remove('text-red-600');
+                feedbackText.classList.add('text-green-600');
+                clickedButton.classList.add('correct');
+                score++;
+            } else {
+                feedbackText.textContent = `Incorrect. The correct answer was: ${correctAnswer} 😕`;
+                feedbackText.classList.remove('text-green-600');
+                feedbackText.classList.add('text-red-600');
+                clickedButton.classList.add('incorrect');
+
+                // Highlight the correct answer
+                Array.from(answerButtonsContainer.children).forEach(button => {
+                    if (button.textContent === correctAnswer) {
+                        button.classList.add('correct');
+                    }
+                });
+            }
+            nextButton.classList.remove('hidden'); // Show the next button
+        }
+
+        /**
+         * Moves to the next question or shows the final score if all questions are answered.
+         */
+        function nextQuestion() {
+            currentQuestionIndex++;
+            loadQuestion();
+        }
+
+        /**
+         * Displays the final score and the restart button.
+         */
+        function showFinalScore() {
+            quizContainer.classList.add('hidden');
+            nextButton.classList.add('hidden');
+            finalScoreContainer.classList.remove('hidden');
+            finalScoreDisplay.textContent = `Your Score: ${score} / ${questions.length}`;
+        }
+
+        /**
+         * Resets the quiz to its initial state to play again.
+         */
+        function restartQuiz() {
+            currentQuestionIndex = 0;
+            score = 0;
+            finalScoreContainer.classList.add('hidden');
+            quizContainer.classList.remove('hidden');
+            loadQuestion();
+        }
+
+        // Event Listeners
+        nextButton.addEventListener('click', nextQuestion);
+        restartButton.addEventListener('click', restartQuiz);
+
+        // Initial load of the first question when the page loads
+        window.onload = loadQuestion;
+    </script>
+</body>
+</html>
