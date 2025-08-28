@@ -1,0 +1,240 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, orderBy, serverTimestamp } from 'firebase/firestore';
+
+// Helper function to convert base64 to ArrayBuffer (if needed for audio, not directly used here)
+const base64ToArrayBuffer = (base64) => {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
+
+// Helper function to convert PCM to WAV (if needed for audio, not directly used here)
+const pcmToWav = (pcmData, sampleRate) => {
+    const numChannels = 1;
+    const bytesPerSample = 2; // 16-bit PCM
+
+    const header = new ArrayBuffer(44);
+    const view = new DataView(header);
+
+    // RIFF identifier
+    writeString(view, 0, 'RIFF');
+    // File size (placeholder)
+    view.setUint32(4, 36 + pcmData.byteLength, true);
+    // WAVE identifier
+    writeString(view, 8, 'WAVE');
+    // FMT chunk
+    writeString(view, 12, 'fmt ');
+    // FMT chunk size
+    view.setUint32(16, 16, true);
+    // Audio format (1 for PCM)
+    view.setUint16(20, 1, true);
+    // Number of channels
+    view.setUint16(22, numChannels, true);
+    // Sample rate
+    view.setUint32(24, sampleRate, true);
+    // Byte rate
+    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
+    // Block align
+    view.setUint16(32, numChannels * bytesPerSample, true);
+    // Bits per sample
+    view.setUint16(34, bytesPerSample * 8, true);
+    // DATA chunk
+    writeString(view, 36, 'data');
+    // Data chunk size (placeholder)
+    view.setUint32(40, pcmData.byteLength, true);
+
+    const blob = new Blob([header, pcmData], { type: 'audio/wav' });
+    return blob;
+};
+
+const writeString = (view, offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+    }
+};
+
+
+function App() {
+    // State variables for Firebase, user, messages, and new message input
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [messages, setMessages] = useState([]);
+    const [newMessage, setNewMessage] = useState('');
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const messagesEndRef = useRef(null);
+
+    // Retrieve app ID and Firebase config from global variables
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+    // Effect for initializing Firebase and handling authentication
+    useEffect(() => {
+        const initializeFirebase = async () => {
+            try {
+                // Initialize Firebase app
+                const app = initializeApp(firebaseConfig);
+                const firestoreDb = getFirestore(app);
+                const firebaseAuth = getAuth(app);
+                setDb(firestoreDb);
+                setAuth(firebaseAuth);
+
+                // Set up authentication state change listener
+                const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                    } else {
+                        // Sign in anonymously if no user is authenticated
+                        if (!initialAuthToken) {
+                            await signInAnonymously(firebaseAuth);
+                        }
+                    }
+                    setIsAuthReady(true);
+                });
+
+                // Sign in with custom token if available
+                if (initialAuthToken) {
+                    await signInWithCustomToken(firebaseAuth, initialAuthToken);
+                } else {
+                    // Sign in anonymously if no custom token
+                    await signInAnonymously(firebaseAuth);
+                }
+
+                return () => unsubscribe(); // Cleanup the auth listener
+            } catch (error) {
+                console.error("Error initializing Firebase:", error);
+            }
+        };
+
+        initializeFirebase();
+    }, [firebaseConfig, initialAuthToken]); // Dependencies for re-running the effect
+
+    // Effect for fetching and listening to messages from Firestore
+    useEffect(() => {
+        if (!db || !userId || !isAuthReady) return; // Ensure Firebase and auth are ready
+
+        // Define the Firestore collection path for public messages
+        const messagesCollectionRef = collection(db, `/artifacts/${appId}/public/data/messages`);
+
+        // Create a query to order messages by timestamp
+        const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'));
+
+        // Set up a real-time listener for messages
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedMessages = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setMessages(fetchedMessages);
+            scrollToBottom(); // Scroll to the latest message
+        }, (error) => {
+            console.error("Error fetching messages:", error);
+        });
+
+        return () => unsubscribe(); // Cleanup the snapshot listener
+    }, [db, userId, appId, isAuthReady]); // Dependencies for re-running the effect
+
+    // Scroll to the bottom of the message list
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    // Handle sending a new message
+    const handleSendMessage = async () => {
+        if (newMessage.trim() === '' || !db || !userId) return;
+
+        try {
+            // Add the new message to Firestore
+            const messagesCollectionRef = collection(db, `/artifacts/${appId}/public/data/messages`);
+            await addDoc(messagesCollectionRef, {
+                text: newMessage,
+                senderId: userId,
+                timestamp: serverTimestamp(), // Use server timestamp for consistency
+            });
+            setNewMessage(''); // Clear the input field
+        } catch (error) {
+            console.error("Error sending message:", error);
+        }
+    };
+
+    // Render the chat application UI
+    return (
+        <div className="flex flex-col h-screen bg-gray-100 font-inter antialiased">
+            {/* Header */}
+            <header className="bg-gradient-to-r from-blue-500 to-purple-600 text-white p-4 shadow-md flex items-center justify-between rounded-b-lg">
+                <h1 className="text-2xl font-bold">Real-time Chat 💬</h1>
+                {userId && (
+                    <div className="text-sm bg-white bg-opacity-20 px-3 py-1 rounded-full">
+                        User ID: <span className="font-semibold">{userId}</span>
+                    </div>
+                )}
+            </header>
+
+            {/* Chat Messages Area */}
+            <main className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 rounded-lg shadow-inner mx-4 my-2">
+                {messages.length === 0 ? (
+                    <div className="text-center text-gray-500 italic p-4">No messages yet. Start the conversation!</div>
+                ) : (
+                    messages.map((msg, index) => (
+                        <div
+                            key={msg.id}
+                            className={`flex ${msg.senderId === userId ? 'justify-end' : 'justify-start'}`}
+                        >
+                            <div
+                                className={`max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-lg shadow-md break-words
+                                ${msg.senderId === userId
+                                    ? 'bg-blue-500 text-white rounded-br-none'
+                                    : 'bg-gray-300 text-gray-800 rounded-bl-none'
+                                }`}
+                            >
+                                <div className="text-xs font-semibold opacity-80 mb-1">
+                                    {msg.senderId === userId ? 'You' : `User: ${msg.senderId.substring(0, 8)}...`}
+                                </div>
+                                <p className="text-sm md:text-base">{msg.text}</p>
+                                {msg.timestamp && (
+                                    <div className="text-right text-xs mt-1 opacity-70">
+                                        {new Date(msg.timestamp.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))
+                )}
+                <div ref={messagesEndRef} /> {/* Dummy div for scrolling */}
+            </main>
+
+            {/* Message Input Area */}
+            <footer className="p-4 bg-white shadow-lg flex items-center gap-3 rounded-t-lg mx-4 mt-2 mb-4">
+                <input
+                    type="text"
+                    className="flex-1 p-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200"
+                    placeholder="Type your message..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                            handleSendMessage();
+                        }
+                    }}
+                    disabled={!userId}
+                />
+                <button
+                    onClick={handleSendMessage}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transform transition duration-300 ease-in-out active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!userId || newMessage.trim() === ''}
+                >
+                    Send
+                </button>
+            </footer>
+        </div>
+    );
+}
+
+export default App;
